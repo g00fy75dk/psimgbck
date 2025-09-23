@@ -125,11 +125,11 @@
 
 # v1.54 (03.04.25)
 # .diz and .idx added to remove stuff.
-# changed to -literalpath and -SimpleMatch (as . counted as a character!)
+# added -literalpath and -SimpleMatch (as . counted as a character!)
 #----------------------------------------------------------------------------------------
 
 # v1.60 (05.04.25)
-# clean-up structure with new loopthrough function
+# clean-up with new loopthrough function
 #----------------------------------------------------------------------------------------
 
 # v1.61 (06.04.25)
@@ -149,7 +149,17 @@
 
 # v1.72 (21.04.25)
 # limit variable based on cpu and nic.
-# errors from deleting files supressed and instead written to log
+# errors from deleting files supressed and written in log
+#----------------------------------------------------------------------------------------
+
+# v1.73 (21.09.25)
+# archive date now changed to latest FILE by traversing files for newest date.
+# https://sourceforge.net/p/sevenzip/discussion/45797/thread/04ecb9a980/ (not possible using just 7zip at least...)
+# https://forums.powershell.org/t/suppressing-error-output-for-type-conversion-on-null/16213/3
+#----------------------------------------------------------------------------------------
+
+# v1.74 (23.09.25)
+# optimized a few more variables
 #----------------------------------------------------------------------------------------
 
 # v2.00 ()
@@ -169,7 +179,6 @@
 # https://github.com/qarmin/czkawka/releases
 # https://github.com/ermig1979/AntiDuplX
 
-
 # if required to run as admin 
 # Set-ExecutionPolicy UnRestricted
 
@@ -177,12 +186,13 @@
 Clear-Host
 
 # set variables
-$source = "your-source-path"
-$destination = "your-destination-path"
+$source = "\\192.168.0.3\temp"
+$destination = "\\192.168.0.3\backup"
+#$destination = "\\192.168.0.3\usbshare1"
 $rootfolder = "PICTURES"
 $topfolders = (Get-ChildItem -Directory "$source\$rootfolder").Where({$_.Name.Length -eq 3}) | Select-Object -ExpandProperty Name
 $extensions = (".gif",".png",".bmp",".emf",".webp")
-$unwanted = (".txt",".nfo",".db",".idx",".diz")
+$unwanted = (".txt",".nfo",".db",".idx",".diz",".url",".exe")
 $startdate = Get-Date
 $logname = (Get-Date).tostring("ddMMyy_HHmmss") + "_log.txt"
 $total = 0
@@ -194,17 +204,10 @@ if ( (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property Numb
 if ( (Get-CimInstance Win32_NetworkAdapter | Select-Object -ExpandProperty Speed)[0]/1000000000 -gt 2 ) { $nicval = 2 } else { $nicval = 1 } 
 $limit = $corval + $nicval
 
-# UNUSED TEST VARIABLES
-#[int]$nicspeed = Get-WmiObject -Class Win32_NetworkAdapter | Select-Object -Property Speed
-#(Get-CimInstance Win32_NetworkAdapter | Select-Object -ExpandProperty Speed)[0]/1000000000
-#[int]$cpuspeed = (Get-CimInstance Win32_Processor | Select-Object -Expand MaxClockSpeed) /1000
-#[int]$corecount = (Get-CimInstance -ClassName Win32_Processor).Count
-#$limit = ($nicspeed + $cpuspeed + $corecount)/2
-
 # set aliases
 set-alias 7z "$env:ProgramFiles\7-Zip\7z.exe"
 set-alias brc "$env:ProgramFiles\Bulk Rename Utility\cli\brc64.exe"
-set-alias cjxl "$env:ProgramFiles\jxl\bin\cjxl.exe"
+set-alias cjxl "$env:ProgramFiles\jxl\cjxl.exe"
 set-alias magick "$env:ProgramFiles\ImageMagick\magick.exe"
 
 # check if applications are avaiable
@@ -215,13 +218,6 @@ function checkapp($arg1)
         Write-Host "Application $arg1 not installed..." -foregroundcolor "red"
         break
     }
-}
-
-# archive images and set archive time with most recent modified file (discontinued)
-function archiveimg($arg1)
-{
-    7z -bso0 -bsp0 -mx0 a -tzip -stl "$destination\$rootfolder\$topfolder\$($arg1.split("\")[-1]).zip" "$arg1"
-    write-output "Creating archive: $destination\$rootfolder\$topfolder\$($arg1.split("\")[-1]).zip" >> "$destination\$logname"
 }
 
 # archive images in parallel and set archive time with most recent modified file
@@ -238,16 +234,7 @@ function renameimg($arg1)
     brc /EXECUTE /TIDYDS /NOFOLDERS /NODUP /PATTERN:"*.jpg.crdownload *.jfif *.jpeg *.jpe *.jpg-large" /FIXEDEXT:".jpg" /DIR:"$arg1" >> "$destination\$logname" 2>&1
 }
 
-# remove thumbsdb (discontinued)
-function removethumbs($arg1)
-{
-    if ( (Test-Path $arg1\Thumbs.db) )
-    {
-        Remove-Item -literalpath "$arg1\Thumbs.db"
-    }
-}
-
-# remove unwanted stuff
+# remove unwanted files
 function removestuff($arg1)
 {
     ForEach ( $ext in $unwanted )
@@ -260,9 +247,26 @@ function removestuff($arg1)
     }
 }
 
+# change folder-date to newest file-date
+function fixdate($arg1)
+{
+    foreach ( $file in [system.io.directory]::EnumerateFiles($arg1) )
+    {
+        $dateorg = "0"
+        if ( [System.IO.File]::GetLastWriteTime($file).Ticks -gt $dateorg )
+        {
+                    $dateorg=[System.IO.File]::GetLastWriteTime($file).Ticks
+        }
+    }
+    if ($file -ne $null)
+    {
+        [System.IO.File]::SetLastWriteTime($file, $dateorg)
+    }
+}
+
 # convert to jpg and remove original
 # should be changed to JXL going forward
-# example: magick -format jxl -define jxl:effort=9 -define jxl:distance=0.6 -define jxl:brotli_effort=11 $ext
+# example: magick $file -quality 100 -define jxl:effort=9 $joinedvar
 function convertimg($arg1)
 {
     ForEach ( $ext in $extensions )
@@ -274,11 +278,10 @@ function convertimg($arg1)
             magick $file $joinedvar
             if ( [System.IO.File]::Exists("$joinedvar") )
             {
-                (Get-Item -literalpath "$joinedvar").lastwritetime=$((Get-Item -literalpath "$file").lastwritetime)
+                [System.IO.File]::SetLastWriteTime($joinedvar, $([System.IO.File]::GetLastWriteTime($file).Ticks))
                 Remove-Item -literalpath $file
                 write-output "Converted file:" $file >> "$destination\$logname"
                 $converted.Value++
-                #return ($converted)
             }
             else
             {
@@ -295,14 +298,13 @@ function losslessjxl($arg1)
     {
         $leftpart = [System.IO.Path]::GetFileNameWithoutExtension("$file")+".jxl"
 	    $joinedvar = "$file".TrimEnd("$file".split("\")[-1])+"$leftpart"
-        cjxl $file $joinedvar --lossless_jpeg=1 --quiet >$null 2>&1
+        cjxl "$file" "$joinedvar" --lossless_jpeg=1 --quiet >$null 2>&1
         if ( [System.IO.File]::Exists("$joinedvar") )
         {
-            (Get-Item -literalpath "$joinedvar").lastwritetime=$((Get-Item -literalpath "$file").lastwritetime)
+            [System.IO.File]::SetLastWriteTime($joinedvar, $([System.IO.File]::GetLastWriteTime($file).Ticks))
             Remove-Item -literalpath $file
             write-output "Converted file:" "$file" >> "$destination\$logname"
             $converted.Value++
-            #return ($converted)
         }
         else
         {
@@ -320,11 +322,13 @@ function loopthrough()
         renameimg $folder
         convertimg $folder
         losslessjxl $folder
+        fixdate $folder
     }
     removestuff $source\$rootfolder\$topfolder\$subfolder
     renameimg $source\$rootfolder\$topfolder\$subfolder
     convertimg $source\$rootfolder\$topfolder\$subfolder
-    losslessjxl $source\$rootfolder\$topfolder\$subfolder  
+    losslessjxl $source\$rootfolder\$topfolder\$subfolder
+    fixdate $source\$rootfolder\$topfolder\$subfolder  
 }
 
 # output information
@@ -348,10 +352,10 @@ function checktarget($arg1)
 # -------------------------------------------------
 
 # check if programs are installed and available
-checkapp "C:\Program Files\Bulk Rename Utility\cli\brc64.exe"
-checkapp "C:\Program Files\7-Zip\7z.exe"
-checkapp "C:\Program Files\ImageMagick\magick.exe"
-checkapp "C:\Program Files\jxl\bin\cjxl.exe"
+checkapp (get-alias brc).Definition
+checkapp (get-alias 7z).Definition
+checkapp (get-alias magick).Definition
+checkapp (get-alias cjxl).Definition
 
 # check if SOURCE and DESTINATION are available
 checktarget $source
@@ -386,7 +390,6 @@ foreach ( $topfolder in $topfolders )
                 {
                     textout updated yellow
                     $updated++
-                    #Remove-Item -literalpath $destination\$rootfolder\$topfolder\$subfolder.zip
                     loopthrough
                     turboarchiveimg $source\$rootfolder\$topfolder\$subfolder
                 }
@@ -429,7 +432,7 @@ $newname = "$rootfolder($("{0:N2}" -f ((Get-ChildItem $destination\$rootfolder\ 
 Rename-Item -literalpath "$destination\$rootfolder" "$destination\$newname"
 
 # move log into renamed folder
-Move-Item -literalpath $destination\$logname $destination\$newname
+Move-Item -literalpath "$destination\$logname" "$destination\$newname"
 
 # parse log for errors
 $errors = (select-string $destination\$newname\$logname -pattern "error:")
