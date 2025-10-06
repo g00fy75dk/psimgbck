@@ -162,10 +162,22 @@
 # optimized a few more variables
 #----------------------------------------------------------------------------------------
 
+# v1.75 (28.09.25)
+# archive date now changed to latest file or FOLDER by also traversing folders for newest date
+#----------------------------------------------------------------------------------------
+
+# v1.76 (30.09.25)
+# log parsed before moved into renamed folder, should it fail
+#----------------------------------------------------------------------------------------
+
+# v1.77 (05.10.25)
+# detection of network interface changed to active one
+# logfile created in rootfolder
+#----------------------------------------------------------------------------------------
+
 # v2.00 ()
-# only use imagemagic to convert to jxl
+# only use imagemagic to convert to jxl, when lossless is supported?
 # duplicate image search?
-# more logical variable names?: subfolder [names]... folders [individual folders recursive]...
 #----------------------------------------------------------------------------------------
 
 # SOFTWARE REQUIRED
@@ -200,8 +212,8 @@ $new = 0
 [Ref]$converted = 0
 $updated = 0
 $exists = 0
-if ( (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum -ge 4 ) { $corval = 3 } else { $corval = 1 } 
-if ( (Get-CimInstance Win32_NetworkAdapter | Select-Object -ExpandProperty Speed)[0]/1000000000 -gt 2 ) { $nicval = 2 } else { $nicval = 1 } 
+if ( (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum -ge 4 ) { $corval = 3 } else { $corval = 1 }
+if ( (Get-CimInstance win32_networkadapter -filter "netconnectionstatus = 2" | Select-Object -ExpandProperty Speed)[0]/1000000000 -gt 2 ) { $nicval = 2 } else { $nicval = 1 } 
 $limit = $corval + $nicval
 
 # set aliases
@@ -224,14 +236,14 @@ function checkapp($arg1)
 function turboarchiveimg($arg1)
 {
     do { Start-Sleep -Milliseconds 50 } while ( (Get-Process | Where-Object {$_.Name -eq '7z'}).count -gt $limit )
-    write-Output "Creating archive: $destination\$rootfolder\$topfolder\$($arg1.split("\")[-1]).zip" >> "$destination\$logname"
+    write-Output "Creating archive: $destination\$rootfolder\$topfolder\$($arg1.split("\")[-1]).zip" >> "$destination\$rootfolder\$logname"
     Start-Process -NoNewWindow (get-alias 7z).Definition -ArgumentList "-mx0 a -tzip -stl `"$destination\$rootfolder\$topfolder\$($arg1.split("\")[-1]).zip`" `"$arg1`" -bso0 -bsp0"
 }
 
 # rename extensions in all subfolder
 function renameimg($arg1)
 {
-    brc /EXECUTE /TIDYDS /NOFOLDERS /NODUP /PATTERN:"*.jpg.crdownload *.jfif *.jpeg *.jpe *.jpg-large" /FIXEDEXT:".jpg" /DIR:"$arg1" >> "$destination\$logname" 2>&1
+    brc /EXECUTE /TIDYDS /NOFOLDERS /NODUP /PATTERN:"*.jpg.crdownload *.jfif *.jpeg *.jpe *.jpg-large" /FIXEDEXT:".jpg" /DIR:"$arg1" >> "$destination\$rootfolder\$logname" 2>&1
 }
 
 # remove unwanted files
@@ -242,31 +254,32 @@ function removestuff($arg1)
         foreach ( $file in [system.io.directory]::EnumerateFiles("$arg1","*",[System.IO.SearchOption]::AllDirectories) | Select-String -SimpleMatch "$ext" )
         {
             Remove-Item -literalpath "$file" >$null 2>&1
-            if (!$?) { write-Output "Unable to remove file: $file" >> "$destination\$logname" }
+            if (!$?) { write-Output "Unable to remove file: $file" >> "$destination\$rootfolder\$logname" }
         }
     }
 }
 
-# change folder-date to newest file-date
+# change folder-date to that of latest file or folder
 function fixdate($arg1)
 {
+    $dateorg = "0"
     foreach ( $file in [system.io.directory]::EnumerateFiles($arg1) )
     {
-        $dateorg = "0"
         if ( [System.IO.File]::GetLastWriteTime($file).Ticks -gt $dateorg )
         {
-                    $dateorg=[System.IO.File]::GetLastWriteTime($file).Ticks
-        }
+            $dateorg=[System.IO.File]::GetLastWriteTime($file).Ticks
+        }        
     }
-    if ($file -ne $null)
+    foreach ( $folder in [system.io.directory]::EnumerateDirectories($arg1) )
     {
-        [System.IO.File]::SetLastWriteTime($file, $dateorg)
+        if ( [System.IO.File]::GetLastWriteTime($folder).Ticks -gt $dateorg )
+        {
+            $dateorg=[System.IO.File]::GetLastWriteTime($folder).Ticks
+        }      
     }
 }
 
-# convert to jpg and remove original
-# should be changed to JXL going forward
-# example: magick $file -quality 100 -define jxl:effort=9 $joinedvar
+# convert to jpg and remove original (should be changed directly to JXL eventually)
 function convertimg($arg1)
 {
     ForEach ( $ext in $extensions )
@@ -280,12 +293,12 @@ function convertimg($arg1)
             {
                 [System.IO.File]::SetLastWriteTime($joinedvar, $([System.IO.File]::GetLastWriteTime($file).Ticks))
                 Remove-Item -literalpath $file
-                write-output "Converted file:" $file >> "$destination\$logname"
+                write-output "Converted file:" $file >> "$destination\$rootfolder\$logname"
                 $converted.Value++
             }
             else
             {
-                write-output "Issues with conversion:" "$file" >> "$destination\$logname"
+                write-output "Issues with conversion:" "$file" >> "$destination\$rootfolder\$logname"
             }
         }
     }
@@ -303,27 +316,29 @@ function losslessjxl($arg1)
         {
             [System.IO.File]::SetLastWriteTime($joinedvar, $([System.IO.File]::GetLastWriteTime($file).Ticks))
             Remove-Item -literalpath $file
-            write-output "Converted file:" "$file" >> "$destination\$logname"
+            write-output "Converted file:" "$file" >> "$destination\$rootfolder\$logname"
             $converted.Value++
         }
         else
         {
-            write-output "Issues with conversion:" "$file" >> "$destination\$logname"
+            write-output "Issues with conversion:" "$file" >> "$destination\$rootfolder\$logname"
         }
     }
 }
 
-# loops through all folders 
+# loops through all folders individually to allow output after each folder is processed
 function loopthrough()
 {
     foreach ( $folder in [system.io.directory]::EnumerateDirectories("$source\$rootfolder\$topfolder\$subfolder","*",[System.IO.SearchOption]::AllDirectories) )
     {
+        #folders inside subfolder...
         removestuff $folder
         renameimg $folder
         convertimg $folder
         losslessjxl $folder
         fixdate $folder
     }
+    #top of subfolder...
     removestuff $source\$rootfolder\$topfolder\$subfolder
     renameimg $source\$rootfolder\$topfolder\$subfolder
     convertimg $source\$rootfolder\$topfolder\$subfolder
@@ -404,8 +419,8 @@ foreach ( $topfolder in $topfolders )
 }
 
 # write start and end time to log
-$startdate >> "$destination\$logname"
-Get-date >> "$destination\$logname"
+$startdate >> "$destination\$rootfolder\$logname"
+Get-date >> "$destination\$rootfolder\$logname"
 
 # count number of files in each subfolder and add to total
 foreach ( $topfolder in Get-ChildItem -Path "$destination\$rootfolder" | Where-Object{ $_.PSIsContainer } | Select-Object -ExpandProperty Name )
@@ -414,28 +429,21 @@ foreach ( $topfolder in Get-ChildItem -Path "$destination\$rootfolder" | Where-O
 }
 # display data and write to log
 write-host "`nTotal number of archives: $total"
-write-Output "Total number of archives: $total" >> "$destination\$logname"
+write-Output "Total number of archives: $total" >> "$destination\$rootfolder\$logname"
 write-host "New archives: $new"
-write-Output "New archives: $new" >> "$destination\$logname"
+write-Output "New archives: $new" >> "$destination\$rootfolder\$logname"
 write-host "Updated archives: $updated"
-write-Output "Updated archives: $updated" >> "$destination\$logname"
+write-Output "Updated archives: $updated" >> "$destination\$rootfolder\$logname"
 write-host "Existing archives: $exists"
-write-Output "Existing archives: $exists" >> "$destination\$logname"
+write-Output "Existing archives: $exists" >> "$destination\$rootfolder\$logname"
 write-host "Number of converted images:" $converted.Value
-write-Output "Number of converted images:" $converted.Value >> "$destination\$logname"
+write-Output "Number of converted images:" $converted.Value >> "$destination\$rootfolder\$logname"
 
 # wait until all 7zip instances are finished
-do{ Start-Sleep -Seconds 1 } while ( (Get-Process | Where-Object {$_.Name -eq '7z'}).count -gt 0 )
-
-# append current date and size to folder name
-$newname = "$rootfolder($("{0:N2}" -f ((Get-ChildItem $destination\$rootfolder\ -recurse | Measure-Object -property length -sum).sum / 1GB) + "GB"), $total Files)"
-Rename-Item -literalpath "$destination\$rootfolder" "$destination\$newname"
-
-# move log into renamed folder
-Move-Item -literalpath "$destination\$logname" "$destination\$newname"
+do { Start-Sleep -Seconds 1 } while ( (Get-Process | Where-Object {$_.Name -eq '7z'}).count -gt 0 )
 
 # parse log for errors
-$errors = (select-string $destination\$newname\$logname -pattern "error:")
+$errors = (select-string $destination\$rootfolder\$logname -pattern "error:")
 if ( $errors.count -ge 1 )
 {
     write-host $errors.count "Error(s) found in log!" -foregroundcolor "red"    
@@ -446,7 +454,7 @@ else
 }
 
 # parse log for issues
-$issues = (select-string $destination\$newname\$logname -pattern "issues")
+$issues = (select-string $destination\$rootfolder\$logname -pattern "issues")
 if ( $issues.count -ge 1 )
 {
     write-host $issues.count "Issue(s) found in log!" -foregroundcolor "yellow"
@@ -455,3 +463,7 @@ else
 {
     write-host "No issues in log!" -foregroundcolor "green"
 }
+
+# append current date and size to folder name
+$newname = "$rootfolder($("{0:N2}" -f ((Get-ChildItem $destination\$rootfolder\ -recurse | Measure-Object -property length -sum).sum / 1GB) + "GB"), $total Files)"
+Rename-Item -literalpath "$destination\$rootfolder" "$destination\$newname"
