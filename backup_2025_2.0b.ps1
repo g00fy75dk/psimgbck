@@ -177,7 +177,7 @@
 
 # v1.78 (23.10.25)
 # wrong use of [System.IO.File] changed to [System.IO.Directory] for changing date of folder
-# empty folders skiped and logged for avoid errors when applying date
+# empty folders removed and logged to avoid errors when applying date
 #----------------------------------------------------------------------------------------
 
 # v2.00 ()
@@ -489,3 +489,4 @@ if ( $empty.count -ge 1 )
 # append current date and size to folder name
 $newname = "$rootfolder($("{0:N2}" -f ((Get-ChildItem $destination\$rootfolder\ -recurse | Measure-Object -property length -sum).sum / 1GB) + "GB"), $total Files)"
 Rename-Item -literalpath "$destination\$rootfolder" "$destination\$newname"
+
