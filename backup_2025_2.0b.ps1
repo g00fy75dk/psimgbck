@@ -175,6 +175,11 @@
 # logfile created in rootfolder
 #----------------------------------------------------------------------------------------
 
+# v1.78 (23.10.25)
+# wrong use of [System.IO.File] changed to [System.IO.Directory] for changing date of folder
+# empty folders skiped and logged for avoid errors when applying date
+#----------------------------------------------------------------------------------------
+
 # v2.00 ()
 # only use imagemagic to convert to jxl, when lossless is supported?
 # duplicate image search?
@@ -199,8 +204,9 @@ Clear-Host
 
 # set variables
 $source = "\\192.168.0.3\temp"
-$destination = "\\192.168.0.3\backup"
-#$destination = "\\192.168.0.3\usbshare1"
+#$destination = "\\192.168.0.3\backup"
+$destination = "\\192.168.0.3\usbshare1"
+#$destination = "\\192.168.0.2\usbshare2"
 $rootfolder = "PICTURES"
 $topfolders = (Get-ChildItem -Directory "$source\$rootfolder").Where({$_.Name.Length -eq 3}) | Select-Object -ExpandProperty Name
 $extensions = (".gif",".png",".bmp",".emf",".webp")
@@ -253,13 +259,13 @@ function removestuff($arg1)
     {
         foreach ( $file in [system.io.directory]::EnumerateFiles("$arg1","*",[System.IO.SearchOption]::AllDirectories) | Select-String -SimpleMatch "$ext" )
         {
-            Remove-Item -literalpath "$file" >$null 2>&1
+            Remove-Item -force -literalpath "$file" >$null 2>&1
             if (!$?) { write-Output "Unable to remove file: $file" >> "$destination\$rootfolder\$logname" }
         }
     }
 }
 
-# change folder-date to that of latest file or folder
+# change folder-date to that of latest file/folder and remove empty folders
 function fixdate($arg1)
 {
     $dateorg = "0"
@@ -276,6 +282,15 @@ function fixdate($arg1)
         {
             $dateorg=[System.IO.File]::GetLastWriteTime($folder).Ticks
         }      
+    }
+    if ( $dateorg -gt 0 )
+    {
+        [System.IO.Directory]::SetLastWriteTime($arg1, $dateorg)
+    }
+    else
+    {
+        write-output "Deleted empty folder:" "$arg1" >> "$destination\$rootfolder\$logname"
+        Remove-Item -force -LiteralPath "$arg1" >$null 2>&1
     }
 }
 
@@ -462,6 +477,13 @@ if ( $issues.count -ge 1 )
 else
 {
     write-host "No issues in log!" -foregroundcolor "green"
+}
+
+# parse log for empty folders
+$empty = (select-string $destination\$rootfolder\$logname -pattern "empty")
+if ( $empty.count -ge 1 )
+{
+    write-host $empty.count "empty folders deleted" -foregroundcolor "yellow"    
 }
 
 # append current date and size to folder name
