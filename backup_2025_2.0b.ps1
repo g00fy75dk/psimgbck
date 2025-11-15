@@ -177,7 +177,12 @@
 
 # v1.78 (23.10.25)
 # wrong use of [System.IO.File] changed to [System.IO.Directory] for changing date of folder
-# empty folders removed and logged to avoid errors when applying date
+# empty folders skiped and logged to avoid errors when applying date
+#----------------------------------------------------------------------------------------
+
+# v1.79 (15.11.25)
+# check if folder exists, in case it has been removed
+# test-paths replaced with [system.io.directory]::Exists
 #----------------------------------------------------------------------------------------
 
 # v2.00 ()
@@ -204,8 +209,8 @@ Clear-Host
 
 # set variables
 $source = "\\192.168.0.3\temp"
-#$destination = "\\192.168.0.3\backup"
-$destination = "\\192.168.0.3\usbshare1"
+$destination = "\\192.168.0.3\backup"
+#$destination = "\\192.168.0.3\usbshare1"
 #$destination = "\\192.168.0.2\usbshare2"
 $rootfolder = "PICTURES"
 $topfolders = (Get-ChildItem -Directory "$source\$rootfolder").Where({$_.Name.Length -eq 3}) | Select-Object -ExpandProperty Name
@@ -231,9 +236,19 @@ set-alias magick "$env:ProgramFiles\ImageMagick\magick.exe"
 # check if applications are avaiable
 function checkapp($arg1)
 {
-    if ( !(Test-Path $arg1) )
+    if ( [system.io.directory]::Exists("$arg1") )
     {
         Write-Host "Application $arg1 not installed..." -foregroundcolor "red"
+        break
+    }
+}
+
+# check target and source
+function checktarget($arg1)
+{
+    if ( ![system.io.directory]::Exists("$arg1") )
+    {
+        Write-Host "$(("$arg1").Split("\")[-1]) folder unavailable..." -foregroundcolor "red" 
         break
     }
 }
@@ -246,13 +261,13 @@ function turboarchiveimg($arg1)
     Start-Process -NoNewWindow (get-alias 7z).Definition -ArgumentList "-mx0 a -tzip -stl `"$destination\$rootfolder\$topfolder\$($arg1.split("\")[-1]).zip`" `"$arg1`" -bso0 -bsp0"
 }
 
-# rename extensions in all subfolder
+# tidy extensions
 function renameimg($arg1)
 {
     brc /EXECUTE /TIDYDS /NOFOLDERS /NODUP /PATTERN:"*.jpg.crdownload *.jfif *.jpeg *.jpe *.jpg-large" /FIXEDEXT:".jpg" /DIR:"$arg1" >> "$destination\$rootfolder\$logname" 2>&1
 }
 
-# remove unwanted files
+# loop through and remove unwanted files
 function removestuff($arg1)
 {
     ForEach ( $ext in $unwanted )
@@ -347,18 +362,24 @@ function loopthrough()
     foreach ( $folder in [system.io.directory]::EnumerateDirectories("$source\$rootfolder\$topfolder\$subfolder","*",[System.IO.SearchOption]::AllDirectories) )
     {
         #folders inside subfolder...
-        removestuff $folder
-        renameimg $folder
-        convertimg $folder
-        losslessjxl $folder
-        fixdate $folder
+        if ( [system.io.directory]::Exists("$folder") )
+        {
+            removestuff $folder
+            renameimg $folder
+            convertimg $folder
+            losslessjxl $folder
+            fixdate $folder
+        }
     }
     #top of subfolder...
-    removestuff $source\$rootfolder\$topfolder\$subfolder
-    renameimg $source\$rootfolder\$topfolder\$subfolder
-    convertimg $source\$rootfolder\$topfolder\$subfolder
-    losslessjxl $source\$rootfolder\$topfolder\$subfolder
-    fixdate $source\$rootfolder\$topfolder\$subfolder  
+    if ( [system.io.directory]::Exists("$folder") )
+    {
+        removestuff $source\$rootfolder\$topfolder\$subfolder
+        renameimg $source\$rootfolder\$topfolder\$subfolder
+        convertimg $source\$rootfolder\$topfolder\$subfolder
+        losslessjxl $source\$rootfolder\$topfolder\$subfolder
+        fixdate $source\$rootfolder\$topfolder\$subfolder
+    }
 }
 
 # output information
@@ -367,15 +388,6 @@ function textout($arg1, $arg2)
     Write-Host "$topfolder" "- " -f gray -nonewline; Write-Host "$subfolder" -f white -nonewline; Write-Host " $arg1" -f "$arg2"
 }
 
-# check target and source
-function checktarget($arg1)
-{
-    if ( !(Test-Path "$arg1") )
-    {
-        Write-Host "$(("$arg1").Split("\")[-1]) folder unavailable..." -foregroundcolor "red" 
-        break
-    }
-}
 
 # -------------------------------------------------
 # MAIN PROGRAM
@@ -392,7 +404,7 @@ checktarget $source
 checktarget $destination
 
 # create subfolder in target
-if( !(Test-Path -Path "$destination\$rootfolder") )
+if ( ![system.io.directory]::Exists("$destination\$rootfolder") )
 {
     New-Item -ItemType directory -Path "$destination\$rootfolder" | Out-Null
 }
@@ -489,4 +501,3 @@ if ( $empty.count -ge 1 )
 # append current date and size to folder name
 $newname = "$rootfolder($("{0:N2}" -f ((Get-ChildItem $destination\$rootfolder\ -recurse | Measure-Object -property length -sum).sum / 1GB) + "GB"), $total Files)"
 Rename-Item -literalpath "$destination\$rootfolder" "$destination\$newname"
-
