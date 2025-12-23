@@ -185,6 +185,10 @@
 # test-paths replaced with [system.io.directory]::Exists
 #----------------------------------------------------------------------------------------
 
+# v1.80 (23.12.25)
+# missed -force in a couple of places, causing errors from time to time when trying to remove files
+#----------------------------------------------------------------------------------------
+
 # v2.00 ()
 # only use imagemagic to convert to jxl, when lossless is supported?
 # duplicate image search?
@@ -322,7 +326,7 @@ function convertimg($arg1)
             if ( [System.IO.File]::Exists("$joinedvar") )
             {
                 [System.IO.File]::SetLastWriteTime($joinedvar, $([System.IO.File]::GetLastWriteTime($file).Ticks))
-                Remove-Item -literalpath $file
+                Remove-Item -force -literalpath $file
                 write-output "Converted file:" $file >> "$destination\$rootfolder\$logname"
                 $converted.Value++
             }
@@ -345,7 +349,7 @@ function losslessjxl($arg1)
         if ( [System.IO.File]::Exists("$joinedvar") )
         {
             [System.IO.File]::SetLastWriteTime($joinedvar, $([System.IO.File]::GetLastWriteTime($file).Ticks))
-            Remove-Item -literalpath $file
+            Remove-Item -force -literalpath $file
             write-output "Converted file:" "$file" >> "$destination\$rootfolder\$logname"
             $converted.Value++
         }
