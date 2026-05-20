@@ -4,7 +4,7 @@ Since I could not find something that would do exactly what I wanted, I did read
 
 Hopefully this script will have some ideas that others might find useful for their own projects.
 
-It can be a bit difficult to read, as I had to replace the command "get-childitem" with the much, much faster "[System.IO.Directory", but the increase in speed was unbelievable!
+It can be a bit difficult to read, as I replaced some command with the much, much faster "System.IO", but the increase in speed was unbelievable!
 
 As with all "projects" extra features got added and now the following is handled by the script:
 .image folder are cleared of non-image files
@@ -12,6 +12,7 @@ As with all "projects" extra features got added and now the following is handled
 .images are converted into the same format
 .images in jpg are losslesly converted to jxl
 .images are archived for easier management
+.date is maintained
 
 All features are functions, so they can individually be enabled or disabled.
 The processing is done in parallel to speed things up significantly.
