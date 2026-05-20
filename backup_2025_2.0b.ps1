@@ -189,6 +189,14 @@
 # missed -force in a couple of places, causing errors from time to time when trying to remove files
 #----------------------------------------------------------------------------------------
 
+# v1.83 (17.05.26)
+# used AI(co-pilot) for optimization ideas:
+# changed match string using EndsWith() instead
+# logic-bug in loopthrough function
+# remove_stuff function simplified
+# fixdate function vectorized
+#----------------------------------------------------------------------------------------
+
 # v2.00 ()
 # only use imagemagic to convert to jxl, when lossless is supported?
 # duplicate image search?
@@ -213,9 +221,9 @@ Clear-Host
 
 # set variables
 $source = "\\192.168.0.3\temp"
-$destination = "\\192.168.0.3\backup"
+#$destination = "\\192.168.0.3\backup"
 #$destination = "\\192.168.0.3\usbshare1"
-#$destination = "\\192.168.0.2\usbshare2"
+$destination = "\\192.168.0.2\usbshare2"
 $rootfolder = "PICTURES"
 $topfolders = (Get-ChildItem -Directory "$source\$rootfolder").Where({$_.Name.Length -eq 3}) | Select-Object -ExpandProperty Name
 $extensions = (".gif",".png",".bmp",".emf",".webp")
@@ -276,7 +284,7 @@ function removestuff($arg1)
 {
     ForEach ( $ext in $unwanted )
     {
-        foreach ( $file in [system.io.directory]::EnumerateFiles("$arg1","*",[System.IO.SearchOption]::AllDirectories) | Select-String -SimpleMatch "$ext" )
+        foreach ( $file in [System.IO.Directory]::EnumerateFiles($arg1, "*$ext", 'AllDirectories') )
         {
             Remove-Item -force -literalpath "$file" >$null 2>&1
             if (!$?) { write-Output "Unable to remove file: $file" >> "$destination\$rootfolder\$logname" }
@@ -288,19 +296,12 @@ function removestuff($arg1)
 function fixdate($arg1)
 {
     $dateorg = "0"
-    foreach ( $file in [system.io.directory]::EnumerateFiles($arg1) )
+    foreach ( $file in ([System.IO.Directory]::EnumerateFiles($arg1) + [System.IO.Directory]::EnumerateDirectories($arg1)))
     {
         if ( [System.IO.File]::GetLastWriteTime($file).Ticks -gt $dateorg )
         {
             $dateorg=[System.IO.File]::GetLastWriteTime($file).Ticks
         }        
-    }
-    foreach ( $folder in [system.io.directory]::EnumerateDirectories($arg1) )
-    {
-        if ( [System.IO.File]::GetLastWriteTime($folder).Ticks -gt $dateorg )
-        {
-            $dateorg=[System.IO.File]::GetLastWriteTime($folder).Ticks
-        }      
     }
     if ( $dateorg -gt 0 )
     {
@@ -318,21 +319,25 @@ function convertimg($arg1)
 {
     ForEach ( $ext in $extensions )
     {
-        foreach ( $file in [system.io.directory]::EnumerateFiles("$arg1","*",[System.IO.SearchOption]::AllDirectories) | Select-String -SimpleMatch "$ext" )
+        #foreach ( $file in [system.io.directory]::EnumerateFiles("$arg1","*",[System.IO.SearchOption]::AllDirectories) | Select-String -SimpleMatch "$ext" )
+        foreach ($file in [System.IO.Directory]::EnumerateFiles($arg1, "*", 'AllDirectories'))
         {
-            $leftpart = [System.IO.Path]::GetFileNameWithoutExtension("$file")+".jpg"
-            $joinedvar = "$file".TrimEnd("$file".split("\")[-1])+"$leftpart"
-            magick $file $joinedvar
-            if ( [System.IO.File]::Exists("$joinedvar") )
+            if ($file.EndsWith($ext, [StringComparison]::OrdinalIgnoreCase))
             {
-                [System.IO.File]::SetLastWriteTime($joinedvar, $([System.IO.File]::GetLastWriteTime($file).Ticks))
-                Remove-Item -force -literalpath $file
-                write-output "Converted file:" $file >> "$destination\$rootfolder\$logname"
-                $converted.Value++
-            }
-            else
-            {
-                write-output "Issues with conversion:" "$file" >> "$destination\$rootfolder\$logname"
+                $leftpart = [System.IO.Path]::GetFileNameWithoutExtension("$file")+".jpg"
+                $joinedvar = "$file".TrimEnd("$file".split("\")[-1])+"$leftpart"
+                magick $file $joinedvar
+                if ( [System.IO.File]::Exists("$joinedvar") )
+                {
+                    [System.IO.File]::SetLastWriteTime($joinedvar, $([System.IO.File]::GetLastWriteTime($file).Ticks))
+                    Remove-Item -force -literalpath $file
+                    write-output "Converted file:" $file >> "$destination\$rootfolder\$logname"
+                    $converted.Value++
+                }
+                else
+                {
+                    write-output "Issues with conversion:" "$file" >> "$destination\$rootfolder\$logname"
+                }
             }
         }
     }
@@ -376,7 +381,7 @@ function loopthrough()
         }
     }
     #top of subfolder...
-    if ( [system.io.directory]::Exists("$folder") )
+    if ( [system.io.directory]::Exists("$source\$rootfolder\$topfolder\$subfolder") )
     {
         removestuff $source\$rootfolder\$topfolder\$subfolder
         renameimg $source\$rootfolder\$topfolder\$subfolder
