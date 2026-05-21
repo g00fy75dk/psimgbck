@@ -197,6 +197,10 @@
 # fixdate function vectorized
 #----------------------------------------------------------------------------------------
 
+# v1.84 (21.05.26)
+# fixdate function optimized further using EnumerateFileSystemEntries
+#----------------------------------------------------------------------------------------
+
 # v2.00 ()
 # only use imagemagic to convert to jxl, when lossless is supported?
 # duplicate image search?
@@ -295,15 +299,15 @@ function removestuff($arg1)
 # change folder-date to that of latest file/folder and remove empty folders
 function fixdate($arg1)
 {
-    $dateorg = "0"
-    foreach ( $file in ([System.IO.Directory]::EnumerateFiles($arg1) + [System.IO.Directory]::EnumerateDirectories($arg1)))
+    $dateorg = [datetime]::MinValue.Ticks
+    foreach ( $file in [System.IO.Directory]::EnumerateFileSystemEntries($arg1) )
     {
         if ( [System.IO.File]::GetLastWriteTime($file).Ticks -gt $dateorg )
         {
             $dateorg=[System.IO.File]::GetLastWriteTime($file).Ticks
         }        
     }
-    if ( $dateorg -gt 0 )
+    if ( $dateorg -gt [datetime]::MinValue.Ticks )
     {
         [System.IO.Directory]::SetLastWriteTime($arg1, $dateorg)
     }
