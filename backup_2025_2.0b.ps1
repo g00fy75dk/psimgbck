@@ -197,8 +197,11 @@
 # fixdate function vectorized
 #----------------------------------------------------------------------------------------
 
-# v1.84 (21.05.26)
-# fixdate function optimized further using EnumerateFileSystemEntries
+# v1.84 (24.05.26)
+# checkapp checked for directory instead of file
+# convertimg optimized
+# scan loop optimized
+# checks if jpg is webp
 #----------------------------------------------------------------------------------------
 
 # v2.00 ()
@@ -225,13 +228,11 @@ Clear-Host
 
 # set variables
 $source = "\\192.168.0.3\temp"
-#$destination = "\\192.168.0.3\backup"
-#$destination = "\\192.168.0.3\usbshare1"
-$destination = "\\192.168.0.2\usbshare2"
+$destination = "d:\img_test\destination"
 $rootfolder = "PICTURES"
 $topfolders = (Get-ChildItem -Directory "$source\$rootfolder").Where({$_.Name.Length -eq 3}) | Select-Object -ExpandProperty Name
 $extensions = (".gif",".png",".bmp",".emf",".webp")
-$unwanted = (".txt",".nfo",".db",".idx",".diz",".url",".exe")
+$unwanted = (".html",".txt",".nfo",".db",".idx",".diz",".url",".exe",".download",".css")
 $startdate = Get-Date
 $logname = (Get-Date).tostring("ddMMyy_HHmmss") + "_log.txt"
 $total = 0
@@ -252,7 +253,7 @@ set-alias magick "$env:ProgramFiles\ImageMagick\magick.exe"
 # check if applications are avaiable
 function checkapp($arg1)
 {
-    if ( [system.io.directory]::Exists("$arg1") )
+    if ( ![system.io.file]::Exists("$arg1") )
     {
         Write-Host "Application $arg1 not installed..." -foregroundcolor "red"
         break
@@ -318,30 +319,66 @@ function fixdate($arg1)
     }
 }
 
+# get image type
+function Get-ImageType($arg1) {
+
+    # Read first 512 bytes (JPEG subtype markers appear later)
+    # Convert Int32 → Byte (0–255)
+    $bytes = $(Get-Content -LiteralPath $arg1 -AsByteStream -TotalCount 512) | ForEach-Object { [byte]$_ }
+
+    # --- WEBP (RIFF....WEBPVP8?) ---
+    if ($bytes.Length -ge 16 -and
+        $bytes[0] -eq 0x52 -and $bytes[1] -eq 0x49 -and $bytes[2] -eq 0x46 -and $bytes[3] -eq 0x46) {
+
+        # Extract VP8?, bytes 12–15
+        $codec = -join ($bytes[12..15] | ForEach-Object { [char]$_ })
+        Rename-Item -LiteralPath $arg1 -NewName ([IO.Path]::ChangeExtension($arg1, ".webp"))
+        return "WEBP ($codec)"
+    }
+
+    # --- JPEG (FF D8 FF) ---
+    if ($bytes.Length -ge 3 -and
+        $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xD8 -and $bytes[2] -eq 0xFF) {
+
+        # Look for baseline (FFC0) or progressive (FFC2)
+        for ($i = 0; $i -lt $bytes.Length - 1; $i++) {
+            if ($bytes[$i] -eq 0xFF) {
+                switch ($bytes[$i+1]) {
+                    0xC0 { return "JPEG (Baseline)" }
+                    0xC2 { return "JPEG (Progressive)" }
+                }
+            }
+        }
+        return "JPEG (Subtype not found)"
+    }
+}
+
 # convert to jpg and remove original (should be changed directly to JXL eventually)
 function convertimg($arg1)
 {
-    ForEach ( $ext in $extensions )
+    foreach ($file in [System.IO.Directory]::EnumerateFiles($arg1, "*", 'AllDirectories'))
     {
-        #foreach ( $file in [system.io.directory]::EnumerateFiles("$arg1","*",[System.IO.SearchOption]::AllDirectories) | Select-String -SimpleMatch "$ext" )
-        foreach ($file in [System.IO.Directory]::EnumerateFiles($arg1, "*", 'AllDirectories'))
+        $ext = [IO.Path]::GetExtension($file).ToLower()
+
+        if ($extensions -contains $ext)
         {
-            if ($file.EndsWith($ext, [StringComparison]::OrdinalIgnoreCase))
+            $folder = [IO.Path]::GetDirectoryName($file)
+            $newfile = Join-Path $folder ([IO.Path]::GetFileNameWithoutExtension($file) + ".jpg")
+
+            magick $file $newfile
+
+            if ([System.IO.File]::Exists($newfile))
             {
-                $leftpart = [System.IO.Path]::GetFileNameWithoutExtension("$file")+".jpg"
-                $joinedvar = "$file".TrimEnd("$file".split("\")[-1])+"$leftpart"
-                magick $file $joinedvar
-                if ( [System.IO.File]::Exists("$joinedvar") )
-                {
-                    [System.IO.File]::SetLastWriteTime($joinedvar, $([System.IO.File]::GetLastWriteTime($file).Ticks))
-                    Remove-Item -force -literalpath $file
-                    write-output "Converted file:" $file >> "$destination\$rootfolder\$logname"
-                    $converted.Value++
-                }
-                else
-                {
-                    write-output "Issues with conversion:" "$file" >> "$destination\$rootfolder\$logname"
-                }
+                $timestamp = [System.IO.File]::GetLastWriteTime($file)
+                [System.IO.File]::SetLastWriteTime($newfile, $timestamp)
+
+                Remove-Item -Force -LiteralPath $file
+                "Converted file: $file" >> "$destination\$rootfolder\$logname"
+                $converted.Value++
+            }
+            else
+            {
+                "Issues with conversion: $file" >> "$destination\$rootfolder\$logname"
             }
         }
     }
@@ -350,7 +387,7 @@ function convertimg($arg1)
 # convert jpg to jxl(lossless) with orignal date-time and remove original
 function losslessjxl($arg1)
 {
-	foreach ( $file in [system.io.directory]::EnumerateFiles("$arg1","*",[System.IO.SearchOption]::AllDirectories) | Select-String -SimpleMatch ".jpg" )
+    foreach ($file in [System.IO.Directory]::EnumerateFiles($arg1, "*.jpg", 'AllDirectories'))
     {
         $leftpart = [System.IO.Path]::GetFileNameWithoutExtension("$file")+".jxl"
 	    $joinedvar = "$file".TrimEnd("$file".split("\")[-1])+"$leftpart"
@@ -365,6 +402,8 @@ function losslessjxl($arg1)
         else
         {
             write-output "Issues with conversion:" "$file" >> "$destination\$rootfolder\$logname"
+            magick identify $file >> "$destination\$rootfolder\$logname"
+            Get-ImageType $file >> "$destination\$rootfolder\$logname"
         }
     }
 }
@@ -428,7 +467,7 @@ foreach ( $topfolder in $topfolders )
     foreach ( $subfolder in [system.io.directory]::EnumerateDirectories("$source\$rootfolder\$topfolder") | ForEach-Object { $_.split("\")[-1] } )
     {
         # skip empty topfolders
-        if ( ([system.io.directory]::EnumerateFiles("$source\$rootfolder\$topfolder\$subfolder","*",[System.IO.SearchOption]::AllDirectories) | Select-String -Pattern ".*").count -gt 0 )
+        if ([System.IO.Directory]::EnumerateFiles("$source\$rootfolder\$topfolder\$subfolder","*", 'AllDirectories').GetEnumerator().MoveNext())
         {
             # create archive if none exists
             if ( ![System.IO.File]::Exists("$destination\$rootfolder\$topfolder\$subfolder.zip") )
@@ -463,10 +502,11 @@ $startdate >> "$destination\$rootfolder\$logname"
 Get-date >> "$destination\$rootfolder\$logname"
 
 # count number of files in each subfolder and add to total
-foreach ( $topfolder in Get-ChildItem -Path "$destination\$rootfolder" | Where-Object{ $_.PSIsContainer } | Select-Object -ExpandProperty Name )
+foreach ($folder in [System.IO.Directory]::EnumerateDirectories("$destination\$rootfolder"))
 {
-    $total+=(get-childitem "$destination\$rootfolder\$topfolder").count
+    $total += [System.IO.Directory]::GetFiles($folder).Length
 }
+
 # display data and write to log
 write-host "`nTotal number of archives: $total"
 write-Output "Total number of archives: $total" >> "$destination\$rootfolder\$logname"
