@@ -190,7 +190,6 @@
 #----------------------------------------------------------------------------------------
 
 # v1.83 (17.05.26)
-# used AI(co-pilot) for optimization ideas:
 # changed match string using EndsWith() instead
 # logic-bug in loopthrough function
 # remove_stuff function simplified
@@ -202,6 +201,11 @@
 # convertimg optimized
 # scan loop optimized
 # checks if jpg is webp
+#----------------------------------------------------------------------------------------
+
+# v1.85 (25.05.26)
+# deletes jpg images if size is 0
+# loopthrough function simplified
 #----------------------------------------------------------------------------------------
 
 # v2.00 ()
@@ -228,7 +232,12 @@ Clear-Host
 
 # set variables
 $source = "\\192.168.0.3\temp"
-$destination = "d:\img_test\destination"
+#$source = "d:\img_test\source"
+#$destination = "d:\img_test\destination"
+#$destination = "d:\BACKUP"
+$destination = "\\192.168.0.3\backup"
+#$destination = "\\192.168.0.3\usbshare1"
+#$destination = "\\192.168.0.2\usbshare2"
 $rootfolder = "PICTURES"
 $topfolders = (Get-ChildItem -Directory "$source\$rootfolder").Where({$_.Name.Length -eq 3}) | Select-Object -ExpandProperty Name
 $extensions = (".gif",".png",".bmp",".emf",".webp")
@@ -401,9 +410,12 @@ function losslessjxl($arg1)
         }
         else
         {
-            write-output "Issues with conversion:" "$file" >> "$destination\$rootfolder\$logname"
+            write-output "Issues with conversion" >> "$destination\$rootfolder\$logname"
             magick identify $file >> "$destination\$rootfolder\$logname"
+            # will rename jpg to webp is applicable
             Get-ImageType $file >> "$destination\$rootfolder\$logname"
+            # remove image if  size is 0
+            if (([System.IO.FileInfo]$file).Length -eq 0) { Remove-Item -force -literalpath "$file" }
         }
     }
 }
@@ -411,26 +423,13 @@ function losslessjxl($arg1)
 # loops through all folders individually to allow output after each folder is processed
 function loopthrough()
 {
-    foreach ( $folder in [system.io.directory]::EnumerateDirectories("$source\$rootfolder\$topfolder\$subfolder","*",[System.IO.SearchOption]::AllDirectories) )
+    foreach ($folder in @("$source\$rootfolder\$topfolder\$subfolder") + [System.IO.Directory]::EnumerateDirectories("$source\$rootfolder\$topfolder\$subfolder", "*", 'AllDirectories'))
     {
-        #folders inside subfolder...
-        if ( [system.io.directory]::Exists("$folder") )
-        {
-            removestuff $folder
-            renameimg $folder
-            convertimg $folder
-            losslessjxl $folder
-            fixdate $folder
-        }
-    }
-    #top of subfolder...
-    if ( [system.io.directory]::Exists("$source\$rootfolder\$topfolder\$subfolder") )
-    {
-        removestuff $source\$rootfolder\$topfolder\$subfolder
-        renameimg $source\$rootfolder\$topfolder\$subfolder
-        convertimg $source\$rootfolder\$topfolder\$subfolder
-        losslessjxl $source\$rootfolder\$topfolder\$subfolder
-        fixdate $source\$rootfolder\$topfolder\$subfolder
+        removestuff $folder
+        renameimg $folder
+        convertimg $folder
+        losslessjxl $folder
+        fixdate $folder
     }
 }
 
@@ -544,7 +543,7 @@ else
     write-host "No issues in log!" -foregroundcolor "green"
 }
 
-# parse log for empty folders
+# parse log for deleted empty folders
 $empty = (select-string $destination\$rootfolder\$logname -pattern "empty")
 if ( $empty.count -ge 1 )
 {
