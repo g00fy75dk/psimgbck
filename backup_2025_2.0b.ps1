@@ -208,6 +208,17 @@
 # loopthrough function simplified
 #----------------------------------------------------------------------------------------
 
+# 1.90 (29.05.2026)
+# re-encode jpg images with issues, using same settings as the original
+#----------------------------------------------------------------------------------------
+
+# 1.91 (31.06.2026)
+# re-encode moved into jxl
+# check and fix image combined
+# logs using streaming function
+# converts images with CMYK to -colorspace sRGB for jxl encodingg to work
+#----------------------------------------------------------------------------------------
+
 # v2.00 ()
 # only use imagemagic to convert to jxl, when lossless is supported?
 # duplicate image search?
@@ -232,12 +243,7 @@ Clear-Host
 
 # set variables
 $source = "\\192.168.0.3\temp"
-#$source = "d:\img_test\source"
-#$destination = "d:\img_test\destination"
-#$destination = "d:\BACKUP"
-$destination = "\\192.168.0.3\backup"
-#$destination = "\\192.168.0.3\usbshare1"
-#$destination = "\\192.168.0.2\usbshare2"
+$destination = "d:\BACKUP"
 $rootfolder = "PICTURES"
 $topfolders = (Get-ChildItem -Directory "$source\$rootfolder").Where({$_.Name.Length -eq 3}) | Select-Object -ExpandProperty Name
 $extensions = (".gif",".png",".bmp",".emf",".webp")
@@ -279,32 +285,42 @@ function checktarget($arg1)
     }
 }
 
+function Write-Log($arg1)
+{
+    Add-Content -LiteralPath $destination\$rootfolder\$logname -Value $arg1 -Encoding UTF8
+}
+
 # archive images in parallel and set archive time with most recent modified file
 function turboarchiveimg($arg1)
 {
     do { Start-Sleep -Milliseconds 50 } while ( (Get-Process | Where-Object {$_.Name -eq '7z'}).count -gt $limit )
-    write-Output "Creating archive: $destination\$rootfolder\$topfolder\$($arg1.split("\")[-1]).zip" >> "$destination\$rootfolder\$logname"
+    Write-Log("Creating archive: $destination\$rootfolder\$topfolder\$($arg1.split("\")[-1]).zip")
     Start-Process -NoNewWindow (get-alias 7z).Definition -ArgumentList "-mx0 a -tzip -stl `"$destination\$rootfolder\$topfolder\$($arg1.split("\")[-1]).zip`" `"$arg1`" -bso0 -bsp0"
 }
 
 # tidy extensions
 function renameimg($arg1)
 {
-    brc /EXECUTE /TIDYDS /NOFOLDERS /NODUP /PATTERN:"*.jpg.crdownload *.jfif *.jpeg *.jpe *.jpg-large" /FIXEDEXT:".jpg" /DIR:"$arg1" >> "$destination\$rootfolder\$logname" 2>&1
+    brc /QUIET /EXECUTE /TIDYDS /NOFOLDERS /NODUP /PATTERN:"*.jpg.crdownload *.jfif *.jpeg *.jpe *.jpg-large" /FIXEDEXT:".jpg" /DIR:"$arg1"
 }
 
 # loop through and remove unwanted files
 function removestuff($arg1)
-{
-    ForEach ( $ext in $unwanted )
+{    
+    foreach ($file in [System.IO.Directory]::EnumerateFiles($arg1, "*", [System.IO.SearchOption]::AllDirectories))
     {
-        foreach ( $file in [System.IO.Directory]::EnumerateFiles($arg1, "*$ext", 'AllDirectories') )
+        if (([System.IO.FileInfo]$file).Length -eq 0)
+        {
+            Remove-Item -force -literalpath "$file"
+        }
+        if ($unwanted -contains ([System.IO.FileInfo]$file).Extension.ToLower())
         {
             Remove-Item -force -literalpath "$file" >$null 2>&1
-            if (!$?) { write-Output "Unable to remove file: $file" >> "$destination\$rootfolder\$logname" }
+            if (!$?) { Write-Log("Unable to remove file: $file") }
         }
     }
 }
+
 
 # change folder-date to that of latest file/folder and remove empty folders
 function fixdate($arg1)
@@ -323,32 +339,30 @@ function fixdate($arg1)
     }
     else
     {
-        write-output "Deleted empty folder:" "$arg1" >> "$destination\$rootfolder\$logname"
+        Write-Log("Deleted empty folder: $arg1")
         Remove-Item -force -LiteralPath "$arg1" >$null 2>&1
     }
 }
 
 # get image type
-function Get-ImageType($arg1) {
-
+function chckimg($arg1) {
     # Read first 512 bytes (JPEG subtype markers appear later)
     # Convert Int32 → Byte (0–255)
     $bytes = $(Get-Content -LiteralPath $arg1 -AsByteStream -TotalCount 512) | ForEach-Object { [byte]$_ }
-
     # --- WEBP (RIFF....WEBPVP8?) ---
     if ($bytes.Length -ge 16 -and
         $bytes[0] -eq 0x52 -and $bytes[1] -eq 0x49 -and $bytes[2] -eq 0x46 -and $bytes[3] -eq 0x46) {
-
         # Extract VP8?, bytes 12–15
         $codec = -join ($bytes[12..15] | ForEach-Object { [char]$_ })
+        # if jpg image is webp, rename extenstion
         Rename-Item -LiteralPath $arg1 -NewName ([IO.Path]::ChangeExtension($arg1, ".webp"))
+        # function only works on folder, but im lazy...
+        convertimg ("$([System.IO.Path]::GetDirectoryName($file))")
         return "WEBP ($codec)"
     }
-
     # --- JPEG (FF D8 FF) ---
     if ($bytes.Length -ge 3 -and
         $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xD8 -and $bytes[2] -eq 0xFF) {
-
         # Look for baseline (FFC0) or progressive (FFC2)
         for ($i = 0; $i -lt $bytes.Length - 1; $i++) {
             if ($bytes[$i] -eq 0xFF) {
@@ -368,30 +382,26 @@ function convertimg($arg1)
     foreach ($file in [System.IO.Directory]::EnumerateFiles($arg1, "*", 'AllDirectories'))
     {
         $ext = [IO.Path]::GetExtension($file).ToLower()
-
         if ($extensions -contains $ext)
         {
             $folder = [IO.Path]::GetDirectoryName($file)
             $newfile = Join-Path $folder ([IO.Path]::GetFileNameWithoutExtension($file) + ".jpg")
-
             magick $file $newfile
-
             if ([System.IO.File]::Exists($newfile))
             {
-                $timestamp = [System.IO.File]::GetLastWriteTime($file)
-                [System.IO.File]::SetLastWriteTime($newfile, $timestamp)
-
+                [System.IO.File]::SetLastWriteTime($newfile, [System.IO.File]::GetLastWriteTime($file))
                 Remove-Item -Force -LiteralPath $file
-                "Converted file: $file" >> "$destination\$rootfolder\$logname"
+                Write-Log("Converted file: $file")
                 $converted.Value++
             }
             else
             {
-                "Issues with conversion: $file" >> "$destination\$rootfolder\$logname"
+                Write-Log("Issues with conversion: $file")
             }
         }
     }
 }
+
 
 # convert jpg to jxl(lossless) with orignal date-time and remove original
 function losslessjxl($arg1)
@@ -405,17 +415,54 @@ function losslessjxl($arg1)
         {
             [System.IO.File]::SetLastWriteTime($joinedvar, $([System.IO.File]::GetLastWriteTime($file).Ticks))
             Remove-Item -force -literalpath $file
-            write-output "Converted file:" "$file" >> "$destination\$rootfolder\$logname"
+            Write-Log("Converted file: $file")
             $converted.Value++
         }
         else
         {
-            write-output "Issues with conversion" >> "$destination\$rootfolder\$logname"
-            magick identify $file >> "$destination\$rootfolder\$logname"
-            # will rename jpg to webp is applicable
-            Get-ImageType $file >> "$destination\$rootfolder\$logname"
-            # remove image if  size is 0
-            if (([System.IO.FileInfo]$file).Length -eq 0) { Remove-Item -force -literalpath "$file" }
+            Write-Log("Issues with conversion")
+            Write-Log(magick identify $file)
+            # very slow, only try this if it must
+            # checks if jpg is webp, renames and converts to jxl
+            Write-Log(chckimg $file)
+
+            $info = magick identify -verbose "$file" 2>&1
+            # delete file if not an image
+            #if (($info) = magick identify -verbose "$file" 2>&1) {Remove-Item -force -literalpath $file}
+            #if (!($info | Select-String "jpeg:sampling-factor"))
+            #{
+            #    write-host $file
+            #    $parts = (($info | Select-String "jpeg:sampling-factor")[0].ToString().Split(":")[2].Trim().Split(",")[0]).Split("x")
+            #}
+            $parts = (($line = ($info | Select-String "jpeg:sampling-factor" | Select-Object -First 1)) ? $line.ToString().Split(":")[2].Trim().Split(",")[0].Split("x") : $null)
+           
+            if ($parts.Count -ge 2)
+            {
+                $jpegSampling = "4:{0}:{1}" -f $parts[0], $parts[1]
+            }
+            else
+            {
+                $jpegSampling = "4:2:2"
+            }
+
+            $quality = ( ($m = $info | Select-String "Quality:" 2>$null) ? ($m.ToString().Split(":")[1].Trim()) : 92 )
+
+            magick  $file -sampling-factor $jpegSampling -quality $quality -strip "$([System.IO.Path]::GetDirectoryName($file))\$([IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg" >$null 2>&1
+            cjxl --quiet --lossless_jpeg=1 "$([System.IO.Path]::GetDirectoryName($file))\$([IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg" "$([System.IO.Path]::GetDirectoryName($file))\$([IO.Path]::GetFileNameWithoutExtension($file)).jxl" >$null 2>&1
+            if (!$?)
+            {
+                magick $file -colorspace sRGB -sampling-factor 4:2:2 -quality $quality -strip "$([System.IO.Path]::GetDirectoryName($file))\$([IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg" >$null 2>&1
+                cjxl --quiet --lossless_jpeg=1 "$([System.IO.Path]::GetDirectoryName($file))\$([IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg" "$([System.IO.Path]::GetDirectoryName($file))\$([IO.Path]::GetFileNameWithoutExtension($file)).jxl" >$null 2>&1
+            }
+            [System.IO.File]::SetLastWriteTime("$([System.IO.Path]::GetDirectoryName($file))\$([IO.Path]::GetFileNameWithoutExtension($file)).jxl", [System.IO.File]::GetLastWriteTime("$file"))
+            if ( [System.IO.File]::Exists("$([System.IO.Path]::GetDirectoryName($file))\$([IO.Path]::GetFileNameWithoutExtension($file)).jxl") )
+            {
+                Remove-Item $file, (Join-Path (Split-Path $file) ("$([IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg"))
+            }
+            else
+            {
+                Remove-Item (Join-Path (Split-Path $file) ("$([IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg"))
+            }
         }
     }
 }
@@ -497,8 +544,8 @@ foreach ( $topfolder in $topfolders )
 }
 
 # write start and end time to log
-$startdate >> "$destination\$rootfolder\$logname"
-Get-date >> "$destination\$rootfolder\$logname"
+Write-Log($startdate)
+Write-Log(Get-date)
 
 # count number of files in each subfolder and add to total
 foreach ($folder in [System.IO.Directory]::EnumerateDirectories("$destination\$rootfolder"))
