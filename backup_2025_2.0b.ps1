@@ -216,7 +216,12 @@
 # re-encode moved into jxl
 # check and fix image combined
 # logs using streaming function
-# converts images with CMYK to -colorspace sRGB for jxl encodingg to work
+# converts images with CMYK to sRGB (-colorspace) for jxl encoding to work
+#----------------------------------------------------------------------------------------
+
+# 1.92 (14.06.2026)
+# logs possible non-image files
+# minor optimizations
 #----------------------------------------------------------------------------------------
 
 # v2.00 ()
@@ -243,7 +248,12 @@ Clear-Host
 
 # set variables
 $source = "\\192.168.0.3\temp"
-$destination = "d:\BACKUP"
+#$source = "d:\img_test\source"
+#$destination = "d:\img_test\destination"
+#$destination = "d:\BACKUP"
+#$destination = "\\192.168.0.3\backup"
+$destination = "\\192.168.0.3\usbshare1"
+#$destination = "\\192.168.0.2\usbshare2"
 $rootfolder = "PICTURES"
 $topfolders = (Get-ChildItem -Directory "$source\$rootfolder").Where({$_.Name.Length -eq 3}) | Select-Object -ExpandProperty Name
 $extensions = (".gif",".png",".bmp",".emf",".webp")
@@ -252,9 +262,9 @@ $startdate = Get-Date
 $logname = (Get-Date).tostring("ddMMyy_HHmmss") + "_log.txt"
 $total = 0
 $new = 0
-[Ref]$converted = 0
 $updated = 0
 $exists = 0
+[Ref]$converted = 0
 if ( (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum -ge 4 ) { $corval = 3 } else { $corval = 1 }
 if ( (Get-CimInstance win32_networkadapter -filter "netconnectionstatus = 2" | Select-Object -ExpandProperty Speed)[0]/1000000000 -gt 2 ) { $nicval = 2 } else { $nicval = 1 } 
 $limit = $corval + $nicval
@@ -311,9 +321,12 @@ function removestuff($arg1)
     {
         if (([System.IO.FileInfo]$file).Length -eq 0)
         {
-            Remove-Item -force -literalpath "$file"
+            Remove-Item -force -literalpath "$file" >$null 2>&1
+            if (!$?) { Write-Log("Unable to remove file: $file") }
+            continue
         }
-        if ($unwanted -contains ([System.IO.FileInfo]$file).Extension.ToLower())
+        if ($unwanted -contains [System.IO.Path]::GetExtension($file))
+        #if ($unwanted -contains ([System.IO.FileInfo]$file).Extension)
         {
             Remove-Item -force -literalpath "$file" >$null 2>&1
             if (!$?) { Write-Log("Unable to remove file: $file") }
@@ -354,8 +367,8 @@ function chckimg($arg1) {
         $bytes[0] -eq 0x52 -and $bytes[1] -eq 0x49 -and $bytes[2] -eq 0x46 -and $bytes[3] -eq 0x46) {
         # Extract VP8?, bytes 12–15
         $codec = -join ($bytes[12..15] | ForEach-Object { [char]$_ })
-        # if jpg image is webp, rename extenstion
-        Rename-Item -LiteralPath $arg1 -NewName ([IO.Path]::ChangeExtension($arg1, ".webp"))
+        # if jpg image is webp, set correct extenstion
+        Rename-Item -LiteralPath $arg1 -NewName ([System.IO.Path]::ChangeExtension($arg1, ".webp"))
         # function only works on folder, but im lazy...
         convertimg ("$([System.IO.Path]::GetDirectoryName($file))")
         return "WEBP ($codec)"
@@ -381,12 +394,12 @@ function convertimg($arg1)
 {
     foreach ($file in [System.IO.Directory]::EnumerateFiles($arg1, "*", 'AllDirectories'))
     {
-        $ext = [IO.Path]::GetExtension($file).ToLower()
+        $ext = [System.IO.Path]::GetExtension($file)
         if ($extensions -contains $ext)
         {
-            $folder = [IO.Path]::GetDirectoryName($file)
-            $newfile = Join-Path $folder ([IO.Path]::GetFileNameWithoutExtension($file) + ".jpg")
-            magick $file $newfile
+            $folder = [System.IO.Path]::GetDirectoryName($file)
+            $newfile = Join-Path $folder ([Systme.IO.Path]::GetFileNameWithoutExtension($file) + ".jpg")
+            magick -quality 92 $file $newfile
             if ([System.IO.File]::Exists($newfile))
             {
                 [System.IO.File]::SetLastWriteTime($newfile, [System.IO.File]::GetLastWriteTime($file))
@@ -420,22 +433,13 @@ function losslessjxl($arg1)
         }
         else
         {
-            Write-Log("Issues with conversion")
-            Write-Log(magick identify $file)
-            # very slow, only try this if it must
+            Write-Log("Issues with conversion, trying alternatives...")
             # checks if jpg is webp, renames and converts to jxl
             Write-Log(chckimg $file)
-
-            $info = magick identify -verbose "$file" 2>&1
-            # delete file if not an image
-            #if (($info) = magick identify -verbose "$file" 2>&1) {Remove-Item -force -literalpath $file}
-            #if (!($info | Select-String "jpeg:sampling-factor"))
-            #{
-            #    write-host $file
-            #    $parts = (($info | Select-String "jpeg:sampling-factor")[0].ToString().Split(":")[2].Trim().Split(",")[0]).Split("x")
-            #}
+            # extract all information to determine image format and setting default values if issues
+            $info = magick identify -verbose "$file" 2>$null
+            # sampling
             $parts = (($line = ($info | Select-String "jpeg:sampling-factor" | Select-Object -First 1)) ? $line.ToString().Split(":")[2].Trim().Split(",")[0].Split("x") : $null)
-           
             if ($parts.Count -ge 2)
             {
                 $jpegSampling = "4:{0}:{1}" -f $parts[0], $parts[1]
@@ -444,24 +448,28 @@ function losslessjxl($arg1)
             {
                 $jpegSampling = "4:2:2"
             }
-
+            # quality
             $quality = ( ($m = $info | Select-String "Quality:" 2>$null) ? ($m.ToString().Split(":")[1].Trim()) : 92 )
-
-            magick  $file -sampling-factor $jpegSampling -quality $quality -strip "$([System.IO.Path]::GetDirectoryName($file))\$([IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg" >$null 2>&1
-            cjxl --quiet --lossless_jpeg=1 "$([System.IO.Path]::GetDirectoryName($file))\$([IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg" "$([System.IO.Path]::GetDirectoryName($file))\$([IO.Path]::GetFileNameWithoutExtension($file)).jxl" >$null 2>&1
+            # re-encode image to fix errors
+            magick  $file -sampling-factor $jpegSampling -quality $quality -strip "$([System.IO.Path]::GetDirectoryName($file))\$([System.IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg" >$null 2>&1
+            # convert image
+            cjxl --quiet --lossless_jpeg=1 "$([System.IO.Path]::GetDirectoryName($file))\$([System.IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg" "$([System.IO.Path]::GetDirectoryName($file))\$([System.IO.Path]::GetFileNameWithoutExtension($file)).jxl" >$null 2>&1
+            # retry with fixed values on error
             if (!$?)
             {
-                magick $file -colorspace sRGB -sampling-factor 4:2:2 -quality $quality -strip "$([System.IO.Path]::GetDirectoryName($file))\$([IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg" >$null 2>&1
-                cjxl --quiet --lossless_jpeg=1 "$([System.IO.Path]::GetDirectoryName($file))\$([IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg" "$([System.IO.Path]::GetDirectoryName($file))\$([IO.Path]::GetFileNameWithoutExtension($file)).jxl" >$null 2>&1
+                magick $file -colorspace sRGB -sampling-factor 4:2:2 -quality $quality -strip "$([System.IO.Path]::GetDirectoryName($file))\$([System.IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg" >$null 2>&1
+                cjxl --quiet --lossless_jpeg=1 "$([System.IO.Path]::GetDirectoryName($file))\$([System.IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg" "$([System.IO.Path]::GetDirectoryName($file))\$([System.IO.Path]::GetFileNameWithoutExtension($file)).jxl" >$null 2>&1
             }
-            [System.IO.File]::SetLastWriteTime("$([System.IO.Path]::GetDirectoryName($file))\$([IO.Path]::GetFileNameWithoutExtension($file)).jxl", [System.IO.File]::GetLastWriteTime("$file"))
-            if ( [System.IO.File]::Exists("$([System.IO.Path]::GetDirectoryName($file))\$([IO.Path]::GetFileNameWithoutExtension($file)).jxl") )
+            [System.IO.File]::SetLastWriteTime("$([System.IO.Path]::GetDirectoryName($file))\$([System.IO.Path]::GetFileNameWithoutExtension($file)).jxl", [System.IO.File]::GetLastWriteTime("$file"))
+            if ( [System.IO.File]::Exists("$([System.IO.Path]::GetDirectoryName($file))\$([System.IO.Path]::GetFileNameWithoutExtension($file)).jxl") )
             {
-                Remove-Item $file, (Join-Path (Split-Path $file) ("$([IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg"))
+                Remove-Item $file, (Join-Path (Split-Path $file) ("$([System.IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg"))
             }
             else
             {
-                Remove-Item (Join-Path (Split-Path $file) ("$([IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg"))
+                Remove-Item (Join-Path (Split-Path $file) ("$([System.IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg"))
+                Write-Log("Unable to convert, maybe file is not an image?")
+                Write-Log(magick identify -format "%[magick]" $file)
             }
         }
     }
@@ -544,8 +552,8 @@ foreach ( $topfolder in $topfolders )
 }
 
 # write start and end time to log
-Write-Log($startdate)
-Write-Log(Get-date)
+Write-Log "`nSTARTED: $startdate"
+Write-Log "FINISHED: $(Get-Date)"
 
 # count number of files in each subfolder and add to total
 foreach ($folder in [System.IO.Directory]::EnumerateDirectories("$destination\$rootfolder"))
@@ -555,15 +563,15 @@ foreach ($folder in [System.IO.Directory]::EnumerateDirectories("$destination\$r
 
 # display data and write to log
 write-host "`nTotal number of archives: $total"
-write-Output "Total number of archives: $total" >> "$destination\$rootfolder\$logname"
+Write-Log "Total number of archives: $total"
 write-host "New archives: $new"
-write-Output "New archives: $new" >> "$destination\$rootfolder\$logname"
+Write-Log "New archives: $new"
 write-host "Updated archives: $updated"
-write-Output "Updated archives: $updated" >> "$destination\$rootfolder\$logname"
+Write-Log "Updated archives: $updated"
 write-host "Existing archives: $exists"
-write-Output "Existing archives: $exists" >> "$destination\$rootfolder\$logname"
-write-host "Number of converted images:" $converted.Value
-write-Output "Number of converted images:" $converted.Value >> "$destination\$rootfolder\$logname"
+Write-Log "Existing archives: $exists"
+write-host "Number of converted images: $($converted.Value)"
+Write-Log "Number of converted images: $($converted.Value)"
 
 # wait until all 7zip instances are finished
 do { Start-Sleep -Seconds 1 } while ( (Get-Process | Where-Object {$_.Name -eq '7z'}).count -gt 0 )
