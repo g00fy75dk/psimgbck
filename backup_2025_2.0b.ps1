@@ -17,7 +17,7 @@ Clear-Host
 
 # set variables
 $source = "\\192.168.0.3\temp"
-$destination = "\\192.168.0.3\usbshare1"
+$destination = "\\192.168.0.3\backup"
 $rootfolder = "PICTURES"
 $topfolders = (Get-ChildItem -Directory "$source\$rootfolder").Where({$_.Name.Length -eq 3}) | Select-Object -ExpandProperty Name
 $extensions = (".gif",".png",".bmp",".emf",".webp")
@@ -224,16 +224,16 @@ function losslessjxl($arg1)
                 magick $file -colorspace sRGB -sampling-factor 4:2:2 -quality $quality -strip "$([System.IO.Path]::GetDirectoryName($file))\$([System.IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg" >$null 2>&1
                 cjxl --quiet --lossless_jpeg=1 "$([System.IO.Path]::GetDirectoryName($file))\$([System.IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg" "$([System.IO.Path]::GetDirectoryName($file))\$([System.IO.Path]::GetFileNameWithoutExtension($file)).jxl" >$null 2>&1
             }
-            [System.IO.File]::SetLastWriteTime("$([System.IO.Path]::GetDirectoryName($file))\$([System.IO.Path]::GetFileNameWithoutExtension($file)).jxl", [System.IO.File]::GetLastWriteTime("$file"))
+            # if new jxl file exists set orignal date and delete jpg
             if ( [System.IO.File]::Exists("$([System.IO.Path]::GetDirectoryName($file))\$([System.IO.Path]::GetFileNameWithoutExtension($file)).jxl") )
             {
-                Remove-Item $file, (Join-Path (Split-Path $file) ("$([System.IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg"))
+                [System.IO.File]::SetLastWriteTime("$([System.IO.Path]::GetDirectoryName($file))\$([System.IO.Path]::GetFileNameWithoutExtension($file)).jxl", [System.IO.File]::GetLastWriteTime("$file"))
+                Remove-Item $file, (Join-Path (Split-Path $file) ("$([System.IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg")) >$null 2>&1
             }
             else
             {
-                Remove-Item (Join-Path (Split-Path $file) ("$([System.IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg"))
-                Write-Log("Unable to convert, maybe file is not an image?")
-                Write-Log(magick identify -format "%[magick]" $file)
+                Remove-Item (Join-Path (Split-Path $file) ("$([System.IO.Path]::GetFileNameWithoutExtension($file))-clean.jpg")) >$null 2>&1
+                Write-Log("Unable to convert, maybe [$file] is corrupt?")
             }
         }
     }
@@ -356,6 +356,17 @@ $issues = (select-string $destination\$rootfolder\$logname -pattern "issues")
 if ( $issues.count -ge 1 )
 {
     write-host $issues.count "Issue(s) found in log!" -foregroundcolor "yellow"
+}
+else
+{
+    write-host "No issues in log!" -foregroundcolor "green"
+}
+
+# parse log for corrupt files
+$corrupt = (select-string $destination\$rootfolder\$logname -pattern "corrupt")
+if ( $corrupt.count -ge 1 )
+{
+    write-host $corrupt.count "Corrpt file(s) found in log!" -foregroundcolor "red"
 }
 else
 {
