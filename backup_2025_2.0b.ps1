@@ -17,7 +17,7 @@ Clear-Host
 
 # set variables
 $source = "\\192.168.0.3\temp"
-$destination = "\\192.168.0.3\backup"
+$destination = "\\192.168.0.3\usbshare1"
 $rootfolder = "PICTURES"
 $topfolders = (Get-ChildItem -Directory "$source\$rootfolder").Where({$_.Name.Length -eq 3}) | Select-Object -ExpandProperty Name
 $extensions = (".gif",".png",".bmp",".emf",".webp")
@@ -370,7 +370,7 @@ if ( $corrupt.count -ge 1 )
 }
 else
 {
-    write-host "No issues in log!" -foregroundcolor "green"
+    write-host "No corrupt files in log!" -foregroundcolor "green"
 }
 
 # parse log for deleted empty folders
