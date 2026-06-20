@@ -162,7 +162,7 @@ function convertimg($arg1)
         if ($extensions -contains $ext)
         {
             $folder = [System.IO.Path]::GetDirectoryName($file)
-            $newfile = Join-Path $folder ([Systme.IO.Path]::GetFileNameWithoutExtension($file) + ".jpg")
+            $newfile = Join-Path $folder ([System.IO.Path]::GetFileNameWithoutExtension($file) + ".jpg")
             magick -quality 92 $file $newfile
             if ([System.IO.File]::Exists($newfile))
             {
