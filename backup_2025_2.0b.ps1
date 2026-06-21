@@ -1,3 +1,4 @@
+
 # SOFTWARE REQUIRED
 # https://www.7-zip.org/download.html
 # https://www.bulkrenameutility.co.uk/Download.php
@@ -17,7 +18,7 @@ Clear-Host
 
 # set variables
 $source = "\\192.168.0.3\temp"
-$destination = "\\192.168.0.3\usbshare1"
+$destination = "\\192.168.0.3\backup"
 $rootfolder = "PICTURES"
 $topfolders = (Get-ChildItem -Directory "$source\$rootfolder").Where({$_.Name.Length -eq 3}) | Select-Object -ExpandProperty Name
 $extensions = (".gif",".png",".bmp",".emf",".webp")
@@ -67,7 +68,7 @@ function Write-Log($arg1)
 # archive images in parallel and set archive time with most recent modified file
 function turboarchiveimg($arg1)
 {
-    do { Start-Sleep -Milliseconds 50 } while ( (Get-Process | Where-Object {$_.Name -eq '7z'}).count -gt $limit )
+    do { Start-Sleep -Milliseconds 500 } while ( (Get-Process | Where-Object {$_.Name -eq '7z'}).count -gt $limit )
     Write-Log("Creating archive: $destination\$rootfolder\$topfolder\$($arg1.split("\")[-1]).zip")
     Start-Process -NoNewWindow (get-alias 7z).Definition -ArgumentList "-mx0 a -tzip -stl `"$destination\$rootfolder\$topfolder\$($arg1.split("\")[-1]).zip`" `"$arg1`" -bso0 -bsp0"
 }
@@ -134,7 +135,7 @@ function chckimg($arg1) {
         # if jpg image is webp, set correct extenstion
         Rename-Item -LiteralPath $arg1 -NewName ([System.IO.Path]::ChangeExtension($arg1, ".webp"))
         # function only works on folder, but im lazy...
-        convertimg ("$([System.IO.Path]::GetDirectoryName($file))")
+        convertimg ("$([System.IO.Path]::GetDirectoryName($arg1))")
         return "WEBP ($codec)"
     }
     # --- JPEG (FF D8 FF) ---
@@ -315,6 +316,9 @@ foreach ( $topfolder in $topfolders )
     }
 }
 
+# wait until all 7zip instances are finished
+do { Start-Sleep -Seconds 1 } while ( (Get-Process | Where-Object {$_.Name -eq '7z'}).count -gt 0 )
+
 # write start and end time to log
 Write-Log "`nSTARTED: $startdate"
 Write-Log "FINISHED: $(Get-Date)"
@@ -336,9 +340,6 @@ write-host "Existing archives: $exists"
 Write-Log "Existing archives: $exists"
 write-host "Number of converted images: $($converted.Value)"
 Write-Log "Number of converted images: $($converted.Value)"
-
-# wait until all 7zip instances are finished
-do { Start-Sleep -Seconds 1 } while ( (Get-Process | Where-Object {$_.Name -eq '7z'}).count -gt 0 )
 
 # parse log for errors
 $errors = (select-string $destination\$rootfolder\$logname -pattern "error:")
@@ -370,7 +371,7 @@ if ( $corrupt.count -ge 1 )
 }
 else
 {
-    write-host "No corrupt files in log!" -foregroundcolor "green"
+    write-host "No issues in log!" -foregroundcolor "green"
 }
 
 # parse log for deleted empty folders
