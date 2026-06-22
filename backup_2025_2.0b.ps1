@@ -1,4 +1,3 @@
-
 # SOFTWARE REQUIRED
 # https://www.7-zip.org/download.html
 # https://www.bulkrenameutility.co.uk/Download.php
@@ -18,7 +17,7 @@ Clear-Host
 
 # set variables
 $source = "\\192.168.0.3\temp"
-$destination = "\\192.168.0.3\backup"
+$destination = "d:\img_test\destination"
 $rootfolder = "PICTURES"
 $topfolders = (Get-ChildItem -Directory "$source\$rootfolder").Where({$_.Name.Length -eq 3}) | Select-Object -ExpandProperty Name
 $extensions = (".gif",".png",".bmp",".emf",".webp")
@@ -68,7 +67,7 @@ function Write-Log($arg1)
 # archive images in parallel and set archive time with most recent modified file
 function turboarchiveimg($arg1)
 {
-    do { Start-Sleep -Milliseconds 500 } while ( (Get-Process | Where-Object {$_.Name -eq '7z'}).count -gt $limit )
+    while ([System.Diagnostics.Process]::GetProcessesByName('7z').Count -gt $limit) { Start-Sleep -Milliseconds 500 }
     Write-Log("Creating archive: $destination\$rootfolder\$topfolder\$($arg1.split("\")[-1]).zip")
     Start-Process -NoNewWindow (get-alias 7z).Definition -ArgumentList "-mx0 a -tzip -stl `"$destination\$rootfolder\$topfolder\$($arg1.split("\")[-1]).zip`" `"$arg1`" -bso0 -bsp0"
 }
@@ -317,7 +316,7 @@ foreach ( $topfolder in $topfolders )
 }
 
 # wait until all 7zip instances are finished
-do { Start-Sleep -Seconds 1 } while ( (Get-Process | Where-Object {$_.Name -eq '7z'}).count -gt 0 )
+while ([System.Diagnostics.Process]::GetProcessesByName('7z').Count -gt $limit) { Start-Sleep -Milliseconds 500 }
 
 # write start and end time to log
 Write-Log "`nSTARTED: $startdate"
@@ -344,43 +343,33 @@ Write-Log "Number of converted images: $($converted.Value)"
 # parse log for errors
 $errors = (select-string $destination\$rootfolder\$logname -pattern "error:")
 if ( $errors.count -ge 1 )
-{
-    write-host $errors.count "Error(s) found in log!" -foregroundcolor "red"    
-}
+{ write-host $errors.count "Error(s) found in log!" -foregroundcolor "red" }
 else
-{
-    write-host "No errors in log!" -foregroundcolor "green"
-}
+{ write-host "No errors in log!" -foregroundcolor "green" }
 
 # parse log for issues
 $issues = (select-string $destination\$rootfolder\$logname -pattern "issues")
 if ( $issues.count -ge 1 )
-{
-    write-host $issues.count "Issue(s) found in log!" -foregroundcolor "yellow"
-}
+{ write-host $issues.count "Issue(s) found in log!" -foregroundcolor "yellow" }
 else
-{
-    write-host "No issues in log!" -foregroundcolor "green"
-}
+{ write-host "No issues in log!" -foregroundcolor "green" }
 
 # parse log for corrupt files
 $corrupt = (select-string $destination\$rootfolder\$logname -pattern "corrupt")
 if ( $corrupt.count -ge 1 )
-{
-    write-host $corrupt.count "Corrpt file(s) found in log!" -foregroundcolor "red"
-}
+{ write-host $corrupt.count "Corrpt file(s) found in log!" -foregroundcolor "red" }
 else
-{
-    write-host "No issues in log!" -foregroundcolor "green"
-}
+{ write-host "No issues in log!" -foregroundcolor "green" }
 
 # parse log for deleted empty folders
 $empty = (select-string $destination\$rootfolder\$logname -pattern "empty")
 if ( $empty.count -ge 1 )
-{
-    write-host $empty.count "empty folders deleted" -foregroundcolor "yellow"    
-}
+{ write-host $empty.count "empty folders deleted" -foregroundcolor "yellow" }
 
 # append current date and size to folder name
-$newname = "$rootfolder($("{0:N2}" -f ((Get-ChildItem $destination\$rootfolder\ -recurse | Measure-Object -property length -sum).sum / 1GB) + "GB"), $total Files)"
+$newname = "$rootfolder ({0:N2}GB, $total Files)" -f (([System.IO.Directory]::EnumerateFiles("$destination\$rootfolder", "*", "AllDirectories") | Measure-Object -Property Length -Sum).Sum / 1GB)
+
+# Force release of lazy file handles from Select-String
+[System.GC]::Collect()
+[System.GC]::WaitForPendingFinalizers()
 Rename-Item -literalpath "$destination\$rootfolder" "$destination\$newname"
