@@ -1,3 +1,4 @@
+
 # VIEWING SOFTWARE
 # WINDOWS: https://interversehq.com/qview/
 # ANDROID: https://github.com/oupson/jxlviewer
@@ -21,12 +22,11 @@ Clear-Host
 
 # set variables
 $source = "\\192.168.0.3\temp"
-$destination = "d:\img_test\destination"
-
+$destination = "\\192.168.0.3\usbshare1"
 $rootfolder = "PICTURES"
-$topfolders = (Get-ChildItem -Directory "$source\$rootfolder").Where({$_.Name.Length -eq 3}) | Select-Object -ExpandProperty Name
+$topfolders = (Get-ChildItem -Directory "$source\$rootfolder").Where({ $_.Name.Length -eq 3 }).Name
 $extensions = (".gif",".png",".bmp",".emf",".webp")
-$unwanted = (".html",".txt",".nfo",".db",".idx",".diz",".url",".exe",".download",".css")
+$unwanted = (".html",".txt",".nfo",".db",".idx",".diz",".url",".exe",".download",".css",".part")
 $startdate = Get-Date
 $logname = (Get-Date).tostring("ddMMyy_HHmmss") + "_log.txt"
 $total = 0
@@ -80,7 +80,7 @@ function turboarchiveimg($arg1)
 # tidy extensions
 function renameimg($arg1)
 {
-    brc /QUIET /EXECUTE /TIDYDS /NOFOLDERS /NODUP /PATTERN:"*.jpg.crdownload *.jfif *.jpeg *.jpe *.jpg-large" /FIXEDEXT:".jpg" /DIR:"$arg1"
+    brc /QUIET /EXECUTE /TIDYDS /NOFOLDERS /NODUP /PATTERN:"*.jpg.crdownload *.jpeg.crdownload *.jfif *.jpeg *.jpe *.jpg-large" /FIXEDEXT:".jpg" /DIR:"$arg1"
 }
 
 # loop through and remove unwanted files
@@ -364,7 +364,7 @@ $corrupt = (select-string $destination\$rootfolder\$logname -pattern "corrupt")
 if ( $corrupt.count -ge 1 )
 { write-host $corrupt.count "Corrpt file(s) found in log!" -foregroundcolor "red" }
 else
-{ write-host "No issues in log!" -foregroundcolor "green" }
+{ write-host "No corrupted files in log!" -foregroundcolor "green" }
 
 # parse log for deleted empty folders
 $empty = (select-string $destination\$rootfolder\$logname -pattern "empty")
@@ -373,8 +373,4 @@ if ( $empty.count -ge 1 )
 
 # append current date and size to folder name
 $newname = "$rootfolder ({0:N2}GB, $total Files)" -f ((([System.IO.DirectoryInfo]"$destination\$rootfolder").GetFiles("*", "AllDirectories") | Measure-Object -Property Length -Sum).Sum / 1GB)
-
-# Force release of lazy file handles from Select-String
-[System.GC]::Collect()
-[System.GC]::WaitForPendingFinalizers()
 Rename-Item -literalpath "$destination\$rootfolder" "$destination\$newname"
