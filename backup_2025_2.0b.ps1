@@ -1,3 +1,7 @@
+# VIEWING SOFTWARE
+# WINDOWS: https://interversehq.com/qview/
+# ANDROID: https://github.com/oupson/jxlviewer
+
 # SOFTWARE REQUIRED
 # https://www.7-zip.org/download.html
 # https://www.bulkrenameutility.co.uk/Download.php
@@ -17,7 +21,11 @@ Clear-Host
 
 # set variables
 $source = "\\192.168.0.3\temp"
+#$source = "d:\img_test\source"
 $destination = "d:\img_test\destination"
+#$destination = "\\192.168.0.3\backup"
+#$destination = "\\192.168.0.3\usbshare1"
+#$destination = "\\192.168.0.2\usbshare2"
 $rootfolder = "PICTURES"
 $topfolders = (Get-ChildItem -Directory "$source\$rootfolder").Where({$_.Name.Length -eq 3}) | Select-Object -ExpandProperty Name
 $extensions = (".gif",".png",".bmp",".emf",".webp")
@@ -367,7 +375,7 @@ if ( $empty.count -ge 1 )
 { write-host $empty.count "empty folders deleted" -foregroundcolor "yellow" }
 
 # append current date and size to folder name
-$newname = "$rootfolder ({0:N2}GB, $total Files)" -f (([System.IO.Directory]::EnumerateFiles("$destination\$rootfolder", "*", "AllDirectories") | Measure-Object -Property Length -Sum).Sum / 1GB)
+$newname = "$rootfolder ({0:N2}GB, $total Files)" -f ((([System.IO.DirectoryInfo]"$destination\$rootfolder").GetFiles("*", "AllDirectories") | Measure-Object -Property Length -Sum).Sum / 1GB)
 
 # Force release of lazy file handles from Select-String
 [System.GC]::Collect()
