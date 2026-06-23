@@ -21,11 +21,8 @@ Clear-Host
 
 # set variables
 $source = "\\192.168.0.3\temp"
-#$source = "d:\img_test\source"
 $destination = "d:\img_test\destination"
-#$destination = "\\192.168.0.3\backup"
-#$destination = "\\192.168.0.3\usbshare1"
-#$destination = "\\192.168.0.2\usbshare2"
+
 $rootfolder = "PICTURES"
 $topfolders = (Get-ChildItem -Directory "$source\$rootfolder").Where({$_.Name.Length -eq 3}) | Select-Object -ExpandProperty Name
 $extensions = (".gif",".png",".bmp",".emf",".webp")
