@@ -1,7 +1,6 @@
-
 # VIEWING SOFTWARE
-# WINDOWS: https://interversehq.com/qview/
-# ANDROID: https://github.com/oupson/jxlviewer
+# WINDOWS https://interversehq.com/qview/
+# ANDROID https://github.com/oupson/jxlviewer
 
 # SOFTWARE REQUIRED
 # https://www.7-zip.org/download.html
@@ -80,7 +79,7 @@ function turboarchiveimg($arg1)
 # tidy extensions
 function renameimg($arg1)
 {
-    brc /QUIET /EXECUTE /TIDYDS /NOFOLDERS /NODUP /PATTERN:"*.jpg.crdownload *.jpeg.crdownload *.jfif *.jpeg *.jpe *.jpg-large" /FIXEDEXT:".jpg" /DIR:"$arg1"
+    brc /QUIET /EXECUTE /TIDYDS /NOFOLDERS /NODUP /PATTERN:"*.jpg.crdownload *.jpeg.crdownload *.jfif *.jpeg *.jpe *.jpg-large *.jpeg-large" /FIXEDEXT:".jpg" /DIR:"$arg1"
 }
 
 # loop through and remove unwanted files
@@ -95,9 +94,8 @@ function removestuff($arg1)
             continue
         }
         if ($unwanted -contains [System.IO.Path]::GetExtension($file))
-        #if ($unwanted -contains ([System.IO.FileInfo]$file).Extension)
         {
-            Remove-Item -force -literalpath "$file" >$null 2>&1
+            Remove-Item -ErrorAction SilentlyContinue -force -literalpath "$file"
             if (!$?) { Write-Log("Unable to remove file: $file") }
         }
     }
@@ -122,7 +120,7 @@ function fixdate($arg1)
     else
     {
         Write-Log("Deleted empty folder: $arg1")
-        Remove-Item -force -LiteralPath "$arg1" >$null 2>&1
+        Remove-Item -ErrorAction SilentlyContinue -force -LiteralPath "$arg1"
     }
 }
 
@@ -132,8 +130,7 @@ function chckimg($arg1) {
     # Convert Int32 → Byte (0–255)
     $bytes = $(Get-Content -LiteralPath $arg1 -AsByteStream -TotalCount 512) | ForEach-Object { [byte]$_ }
     # --- WEBP (RIFF....WEBPVP8?) ---
-    if ($bytes.Length -ge 16 -and
-        $bytes[0] -eq 0x52 -and $bytes[1] -eq 0x49 -and $bytes[2] -eq 0x46 -and $bytes[3] -eq 0x46) {
+    if ($bytes.Length -ge 16 -and $bytes[0] -eq 0x52 -and $bytes[1] -eq 0x49 -and $bytes[2] -eq 0x46 -and $bytes[3] -eq 0x46) {
         # Extract VP8?, bytes 12–15
         $codec = -join ($bytes[12..15] | ForEach-Object { [char]$_ })
         # if jpg image is webp, set correct extenstion
@@ -143,8 +140,7 @@ function chckimg($arg1) {
         return "WEBP ($codec)"
     }
     # --- JPEG (FF D8 FF) ---
-    if ($bytes.Length -ge 3 -and
-        $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xD8 -and $bytes[2] -eq 0xFF) {
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xD8 -and $bytes[2] -eq 0xFF) {
         # Look for baseline (FFC0) or progressive (FFC2)
         for ($i = 0; $i -lt $bytes.Length - 1; $i++) {
             if ($bytes[$i] -eq 0xFF) {
@@ -190,11 +186,11 @@ function losslessjxl($arg1)
 {
     foreach ($file in [System.IO.Directory]::EnumerateFiles($arg1, "*.jpg", 'AllDirectories'))
     {
-        $leftpart = [System.IO.Path]::GetFileNameWithoutExtension("$file")+".jxl"
+	    $leftpart = [System.IO.Path]::GetFileNameWithoutExtension("$file")+".jxl"
 	    $joinedvar = "$file".TrimEnd("$file".split("\")[-1])+"$leftpart"
-        cjxl "$file" "$joinedvar" --lossless_jpeg=1 --quiet >$null 2>&1
-        if ( [System.IO.File]::Exists("$joinedvar") )
-        {
+	    cjxl "$file" "$joinedvar" --lossless_jpeg=1 --quiet >$null 2>&1
+	    if ( [System.IO.File]::Exists("$joinedvar") )
+	    {
             [System.IO.File]::SetLastWriteTime($joinedvar, $([System.IO.File]::GetLastWriteTime($file).Ticks))
             Remove-Item -force -literalpath $file
             Write-Log("Converted file: $file")
@@ -326,6 +322,7 @@ while ([System.Diagnostics.Process]::GetProcessesByName('7z').Count -gt $limit) 
 # write start and end time to log
 Write-Log "`nSTARTED: $startdate"
 Write-Log "FINISHED: $(Get-Date)"
+Write-log ("ELAPSED: {0:hh\:mm\:ss}" -f ((Get-Date) - $startdate))
 
 # count number of files in each subfolder and add to total
 foreach ($folder in [System.IO.Directory]::EnumerateDirectories("$destination\$rootfolder"))
